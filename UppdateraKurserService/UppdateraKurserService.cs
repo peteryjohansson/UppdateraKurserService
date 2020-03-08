@@ -54,7 +54,7 @@ namespace UppdateraKurserService
             //    <add key="TablesToUpdate"  value="AF_KF_ISK_IPS_TJP" />
             //<add key="SpecialAktier"  value="PARA.STO_CLS-B.STO_NENT-B.STO" />
             //timer = new System.Timers.Timer(2700000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
-            timer = new System.Timers.Timer(60000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
+            timer = new System.Timers.Timer(120000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
             timer.Elapsed += new ElapsedEventHandler(OnTimedEvent); // Sätter ElapsedEventHandler till subrutinen OnTimedEvent
         }
 
@@ -83,7 +83,6 @@ namespace UppdateraKurserService
         {
             timer.Stop();
             char[] delim = { ',' };
-       
            
             foreach (object AtHour in runAtHour.Split(delim))
             {
@@ -109,7 +108,7 @@ namespace UppdateraKurserService
                         GetStockPriceSpecial(GlobalVars.TablesToUpdate);
                     }
 
-
+                    UpdateTotal();
                 }
             }
             timer.Start();
@@ -176,8 +175,9 @@ namespace UppdateraKurserService
 
                             // Lite fullösning, men här behöver vi inte kolla upp aktier som har en symbol som slutar på .STO.
                             // Detta tas hand om av GetStockPriceSpecial
+                            // Vi passar på att även hoppa över kontanter.
 
-                            if (!symbol.Contains(".STO"))
+                            if (!symbol.Contains(".STO") && !symbol.Contains("Kontanter"))
                             { 
                                 try
                                 {
@@ -303,7 +303,6 @@ namespace UppdateraKurserService
 
         public static void UpdateStock(string table, string symbol, decimal Kurs, decimal rate)
         {
-
             string mysqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
 
             try
@@ -338,8 +337,26 @@ namespace UppdateraKurserService
             {
                 Logger("ERROR", ex.Message);
             }
+        }
 
+        public static void UpdateTotal()
+        {
+            string mysqlcmnd = "CALL `money`.`update_total`();";
+            Logger("INFO", "Updating Total ");
 
+            try
+            {
+                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                {
+                    connection.Open();
+                    MySqlCommand command = new MySqlCommand(mysqlcmnd, connection);
+                    command.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger("ERROR", ex.Message);
+            }
 
         }
 
@@ -367,9 +384,6 @@ namespace UppdateraKurserService
             }
 
         }
-
-
-
 
 
     }
