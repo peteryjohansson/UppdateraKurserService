@@ -54,7 +54,7 @@ namespace UppdateraKurserService
             //    <add key="TablesToUpdate"  value="AF_KF_ISK_IPS_TJP" />
             //<add key="SpecialAktier"  value="PARA.STO_CLS-B.STO_NENT-B.STO" />
             //timer = new System.Timers.Timer(2700000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
-            timer = new System.Timers.Timer(120000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
+            timer = new System.Timers.Timer(300000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
             timer.Elapsed += new ElapsedEventHandler(OnTimedEvent); // Sätter ElapsedEventHandler till subrutinen OnTimedEvent
         }
 
@@ -107,7 +107,7 @@ namespace UppdateraKurserService
                         GetStockPriceForTable(GlobalVars.TablesToUpdate);
                         GetStockPriceSpecial(GlobalVars.TablesToUpdate);
                     }
-
+                    GetCryptoPrices();
                     UpdateTotal();
                 }
             }
@@ -144,7 +144,69 @@ namespace UppdateraKurserService
             public decimal O { get; set; }
             public decimal PC { get; set; }
         }
-       
+
+
+        public static void GetCryptoPrices()
+        {
+            //  Welcome to Alpha Vantage! Here is your API key: APA3UI90FWXJA9IM
+            //  string ApiURL = "https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=BTC&to_currency=SEK&apikey=APA3UI90FWXJA9IM";
+            // NOTERA: För att använda detta så måste stockholms börsens aktier markeras med STO och inte ST
+            
+            string mysqlcmnd = "SELECT * FROM money.crypto";
+
+            DataTable dt = new DataTable();
+            var client = new System.Net.WebClient();
+            var apiKey = "APA3UI90FWXJA9IM";
+
+            try
+            {
+                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                {
+                    connection.Open();
+
+                    using (MySqlCommand myCommand = new MySqlCommand(mysqlcmnd, connection))
+                    {
+
+                        using (MySqlDataAdapter mysqlDa = new MySqlDataAdapter(myCommand))
+                            mysqlDa.Fill(dt);
+
+                        foreach (DataRow row in dt.Rows)
+                        {
+                            string symbol = row[10].ToString();
+                            string responseBody = "";
+
+                            try
+                            {
+                                string url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={symbol}&to_currency=SEK&apikey={apiKey}";
+                                responseBody = client.DownloadString(url);
+                                                                
+                                int position = responseBody.IndexOf("Swedish Krona");
+                                string substring = responseBody.Substring(position + 45, 30);
+                                int endposition = substring.IndexOf("\",");
+                                string sekprice = substring.Substring(0, endposition);
+
+                                decimal CurrentOpenPrice = decimal.Parse(sekprice);
+
+                                System.Threading.Thread.Sleep(GlobalVars.Delay);
+
+                                UpdateInvestment("crypto", symbol, CurrentOpenPrice, 1);
+                                Logger("INFO", "Updating Crypto : " + symbol + " " + CurrentOpenPrice);
+
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger("ERROR",  ex.Message);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger("ERROR", ex.Message);
+            }
+        }
+
         public static void GetStockPriceForTable(string table)
         {
             // key: bo5suuvrh5rbvm1sl1t0   https://finnhub.io/dashboard
@@ -193,7 +255,7 @@ namespace UppdateraKurserService
                                     }
 
                                     System.Threading.Thread.Sleep(GlobalVars.Delay);
-                                    UpdateStock(table, symbol, CurrentOpenPrice,rate);
+                                    UpdateInvestment(table, symbol, CurrentOpenPrice,rate);
                                     rate = 1;
                                     Logger("INFO", table + "." + symbol + " " + CurrentOpenPrice);
                                 }
@@ -282,7 +344,7 @@ namespace UppdateraKurserService
                                 }
 
 
-                                UpdateStock(table, symbol, CurrentOpenPrice,rate);
+                                UpdateInvestment(table, symbol, CurrentOpenPrice,rate);
                                 rate = 1;
                                 Logger("INFO", "SPECIAL: " + table + "." + symbol + " " + CurrentOpenPrice);
 
@@ -301,7 +363,7 @@ namespace UppdateraKurserService
             }
         }
 
-        public static void UpdateStock(string table, string symbol, decimal Kurs, decimal rate)
+        public static void UpdateInvestment(string table, string symbol, decimal Kurs, decimal rate)
         {
             string mysqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
 
