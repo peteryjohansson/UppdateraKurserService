@@ -158,6 +158,8 @@ namespace UppdateraKurserService
             var client = new System.Net.WebClient();
             var apiKey = "APA3UI90FWXJA9IM";
 
+            Logger("INFO", "Updatera priser för Krypto");
+
             try
             {
                 using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
@@ -190,7 +192,7 @@ namespace UppdateraKurserService
                                 System.Threading.Thread.Sleep(GlobalVars.Delay);
 
                                 UpdateInvestment("crypto", symbol, CurrentOpenPrice, 1);
-                                Logger("INFO", "Updating Crypto : " + symbol + " " + CurrentOpenPrice);
+                                //Logger("INFO", "Updating Crypto : " + symbol + " " + CurrentOpenPrice);
 
                             }
                             catch (Exception ex)
@@ -218,6 +220,8 @@ namespace UppdateraKurserService
 
             DataTable dt = new DataTable();
             var client = new System.Net.WebClient();
+
+            Logger("INFO", "Uppdatera priser för " + table);
 
             try
             {
@@ -257,7 +261,7 @@ namespace UppdateraKurserService
                                     System.Threading.Thread.Sleep(GlobalVars.Delay);
                                     UpdateInvestment(table, symbol, CurrentOpenPrice,rate);
                                     rate = 1;
-                                    Logger("INFO", table + "." + symbol + " " + CurrentOpenPrice);
+                                    //Logger("INFO", table + "." + symbol + " " + CurrentOpenPrice);
                                 }
                                 catch (Exception ex)
                                 {
@@ -285,6 +289,8 @@ namespace UppdateraKurserService
             GlobalVars.SpecialAktier = ConfigurationManager.AppSettings["SpecialAktier"];
             string mysqlcmnd = "";
             decimal rate = 1;
+
+            Logger("INFO", "Uppdatera (special) priser för " + table);
 
             if (GlobalVars.SpecialAktier.Contains("_"))
             {
@@ -346,7 +352,7 @@ namespace UppdateraKurserService
 
                                 UpdateInvestment(table, symbol, CurrentOpenPrice,rate);
                                 rate = 1;
-                                Logger("INFO", "SPECIAL: " + table + "." + symbol + " " + CurrentOpenPrice);
+                                //Logger("INFO", "SPECIAL: " + table + "." + symbol + " " + CurrentOpenPrice);
 
                             }
                             catch (Exception ex)
@@ -365,26 +371,10 @@ namespace UppdateraKurserService
 
         public static void UpdateInvestment(string table, string symbol, decimal Kurs, decimal rate)
         {
-            string mysqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
+            //Uppdaterar Kurs och SEKKurs 
 
-            try
-            {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
-                {
-                    connection.Open();
-                    MySqlCommand command = new MySqlCommand(mysqlcmnd, connection);
-                    command.ExecuteNonQuery();
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger("ERROR", ex.Message);
-            }
-
-            // Här uppdatera vi kursen relaterade till SEK
             decimal SEKKurs = Kurs * rate;
-
-            mysqlcmnd = "UPDATE money." + table + " SET SEKKurs =  " + SEKKurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
+            string mysqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + ", SEKKURS = " + SEKKurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
 
             try
             {
