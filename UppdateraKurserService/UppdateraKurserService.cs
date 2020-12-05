@@ -9,14 +9,16 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
 using System.Net.Http;
-using MySql.Data.MySqlClient;
+//using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using System.Configuration;
-
+using System.Data.SqlClient;
 
 /* Den större delan av aktiekurser använder jag finnhub.io för att uppdatera då jag får göra mer frekvent API anrop än vad man är tillåten mot Alpha Vantage.
  * Däremot så har inte finnhub alla svenska aktier, de som de saknar hämtar jag istället med Alpha Vantage
  * Dock så måste jag ändra symbolen från .ST till .STO i tabellen för att detta ska funka.
+ * 
+ * Lägg till dessa i App.config under SpecialAkiter. Om flera avskilj med _
  * 
  * 
  * 
@@ -33,6 +35,7 @@ namespace UppdateraKurserService
     static class GlobalVars
     {
         public static string conString = "";
+        public static string SQLconString = "";
         public static string quote = "\"";
         public static string TablesToUpdate = "";
         public static int Delay = 0;
@@ -54,7 +57,8 @@ namespace UppdateraKurserService
             //    <add key="TablesToUpdate"  value="AF_KF_ISK_IPS_TJP" />
             //<add key="SpecialAktier"  value="PARA.STO_CLS-B.STO_NENT-B.STO" />
             //timer = new System.Timers.Timer(2700000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
-            timer = new System.Timers.Timer(300000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
+            //timer = new System.Timers.Timer(300000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
+            timer = new System.Timers.Timer(50000); // Intervallet i millisekunder mellan körningarna av ElapsedEventHandler
             timer.Elapsed += new ElapsedEventHandler(OnTimedEvent); // Sätter ElapsedEventHandler till subrutinen OnTimedEvent
         }
 
@@ -64,6 +68,7 @@ namespace UppdateraKurserService
             //System.Diagnostics.Debugger.Launch();
 
             GlobalVars.conString = ConfigurationManager.AppSettings["MySqlConnectionString"];
+            GlobalVars.SQLconString = ConfigurationManager.AppSettings["SqlConnectionString"];
             GlobalVars.TablesToUpdate = ConfigurationManager.AppSettings["TablesToUpdate"];
             GlobalVars.Delay = Int32.Parse(ConfigurationManager.AppSettings["Delay"]);
             runAtStart = ConfigurationManager.AppSettings["runAtStart"];
@@ -97,14 +102,14 @@ namespace UppdateraKurserService
 
                         foreach (string table in tables)
                         {
-                            GetStockPriceForTable(table);
+                            GetStockPrices(table);
                             GetStockPriceSpecial(table);
                         }
 
                     }
                     else
                     {
-                        GetStockPriceForTable(GlobalVars.TablesToUpdate);
+                        GetStockPrices(GlobalVars.TablesToUpdate);
                         GetStockPriceSpecial(GlobalVars.TablesToUpdate);
                     }
                     GetCryptoPrices();
@@ -118,12 +123,12 @@ namespace UppdateraKurserService
         {
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
 
-                    string CommandText = "INSERT INTO log set type = @type, message = @message";
-                    MySqlCommand command = new MySqlCommand(CommandText, connection);
+                    string CommandText = "INSERT INTO money.log (type,message) values(@type,@message)";
+                    SqlCommand command = new SqlCommand(CommandText, connection);
 
                     command.Parameters.AddWithValue("@type", type);
                     command.Parameters.AddWithValue("@message", message);
@@ -152,24 +157,24 @@ namespace UppdateraKurserService
             //  string ApiURL = "https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=BTC&to_currency=SEK&apikey=APA3UI90FWXJA9IM";
             // NOTERA: För att använda detta så måste stockholms börsens aktier markeras med STO och inte ST
             
-            string mysqlcmnd = "SELECT * FROM money.crypto";
+            string sqlcmnd = "SELECT * FROM money.crypto";
 
             DataTable dt = new DataTable();
             var client = new System.Net.WebClient();
             var apiKey = "APA3UI90FWXJA9IM";
 
-            Logger("INFO", "Updatera priser för Krypto");
+            //Logger("INFO", "Updatera priser för Krypto");
 
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
 
-                    using (MySqlCommand myCommand = new MySqlCommand(mysqlcmnd, connection))
+                    using (SqlCommand myCommand = new SqlCommand(sqlcmnd, connection))
                     {
 
-                        using (MySqlDataAdapter mysqlDa = new MySqlDataAdapter(myCommand))
+                        using (SqlDataAdapter mysqlDa = new SqlDataAdapter(myCommand))
                             mysqlDa.Fill(dt);
 
                         foreach (DataRow row in dt.Rows)
@@ -181,57 +186,60 @@ namespace UppdateraKurserService
                             {
                                 string url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={symbol}&to_currency=SEK&apikey={apiKey}";
                                 responseBody = client.DownloadString(url);
-                                                                
+
                                 int position = responseBody.IndexOf("Swedish Krona");
                                 string substring = responseBody.Substring(position + 45, 30);
                                 int endposition = substring.IndexOf("\",");
                                 string sekprice = substring.Substring(0, endposition);
+
+                                //Logger("INFO0", "Position : " + position + " EndPosition: " + endposition);
 
                                 decimal CurrentOpenPrice = decimal.Parse(sekprice);
 
                                 System.Threading.Thread.Sleep(GlobalVars.Delay);
 
                                 UpdateInvestment("crypto", symbol, CurrentOpenPrice, 1);
-                                //Logger("INFO", "Updating Crypto : " + symbol + " " + CurrentOpenPrice);
+                                //Logger("INFO1", "Updating Crypto : " + symbol + " " + CurrentOpenPrice);
 
                             }
                             catch (Exception ex)
                             {
-                                Logger("ERROR",  ex.Message);
+                                Logger("ERROR1", ex.Message);
                             }
+
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Logger("ERROR", ex.Message);
+                Logger("ERROR2", ex.Message);
             }
         }
 
-        public static void GetStockPriceForTable(string table)
+        public static void GetStockPrices(string table)
         {
             // key: bo5suuvrh5rbvm1sl1t0   https://finnhub.io/dashboard
             // https://finnhub.io/api/v1/quote?symbol=AAPL&token=bo5suuvrh5rbvm1sl1t0
 
-            string mysqlcmnd = "SELECT * FROM money." + table + ";";
+            string sqlcmnd = "SELECT * FROM money." + table + ";";
             string apiKey = "bo5suuvrh5rbvm1sl1t0";
             decimal rate = 1;
 
             DataTable dt = new DataTable();
             var client = new System.Net.WebClient();
 
-            Logger("INFO", "Uppdatera priser för " + table);
+            //Logger("INFO", "Uppdatera priser för " + table);
 
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
 
-                    using (MySqlCommand myCommand = new MySqlCommand(mysqlcmnd, connection))
+                    using (SqlCommand myCommand = new SqlCommand(sqlcmnd, connection))
                     {
-                        using (MySqlDataAdapter mysqlDa = new MySqlDataAdapter(myCommand))
+                        using (SqlDataAdapter mysqlDa = new SqlDataAdapter(myCommand))
                             mysqlDa.Fill(dt);
 
                         foreach (DataRow row in dt.Rows)
@@ -265,7 +273,7 @@ namespace UppdateraKurserService
                                 }
                                 catch (Exception ex)
                                 {
-                                    Logger("ERROR", symbol + " " + ex.Message);
+                                    Logger("ERROR3", symbol + " " + ex.Message);
                                 }
 
                             }
@@ -275,7 +283,7 @@ namespace UppdateraKurserService
             }
             catch (Exception ex)
             {
-                Logger("ERROR", ex.Message);
+                Logger("ERROR4", ex.Message);
             }
 
         }
@@ -287,14 +295,14 @@ namespace UppdateraKurserService
             // NOTERA: För att använda detta så måste stockholms börsens aktier markeras med STO och inte ST
 
             GlobalVars.SpecialAktier = ConfigurationManager.AppSettings["SpecialAktier"];
-            string mysqlcmnd = "";
+            string sqlcmnd = "";
             decimal rate = 1;
 
-            Logger("INFO", "Uppdatera (special) priser för " + table);
+            //Logger("INFO", "Uppdatera (special) priser för " + table);
 
             if (GlobalVars.SpecialAktier.Contains("_"))
             {
-                mysqlcmnd = "SELECT * FROM money." + table + " WHERE Symbol = ";
+                sqlcmnd = "SELECT * FROM money." + table + " WHERE Symbol = ";
                 string[] aktier = GlobalVars.SpecialAktier.Split('_');
                 string aktietemp = GlobalVars.quote + aktier[0] + GlobalVars.quote;
 
@@ -303,11 +311,11 @@ namespace UppdateraKurserService
                     aktietemp = aktietemp + " OR Symbol = " + GlobalVars.quote + aktier[i] + GlobalVars.quote;
                 }
 
-                mysqlcmnd = mysqlcmnd + aktietemp + ";";
+                sqlcmnd = sqlcmnd + aktietemp + ";";
             }
             else
             {
-                mysqlcmnd = "SELECT * FROM money." + table + " WHERE Symbol = " + GlobalVars.quote + GlobalVars.SpecialAktier + GlobalVars.quote + ";";
+                sqlcmnd = "SELECT * FROM money." + table + " WHERE Symbol = ' + GlobalVars.quote + GlobalVars.SpecialAktier + GlobalVars.quote + ';";
             }
 
 
@@ -318,14 +326,14 @@ namespace UppdateraKurserService
 
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
 
-                    using (MySqlCommand myCommand = new MySqlCommand(mysqlcmnd, connection))
+                    using (SqlCommand myCommand = new SqlCommand(sqlcmnd, connection))
                     {
 
-                        using (MySqlDataAdapter mysqlDa = new MySqlDataAdapter(myCommand))
+                        using (SqlDataAdapter mysqlDa = new SqlDataAdapter(myCommand))
                             mysqlDa.Fill(dt);
 
                         foreach (DataRow row in dt.Rows)
@@ -357,7 +365,7 @@ namespace UppdateraKurserService
                             }
                             catch (Exception ex)
                             {
-                                Logger("ERROR", table + "." + symbol + " " + responseBody + " " + ex.Message);
+                                Logger("ERROR5", table + "." + symbol + " " + responseBody + " " + ex.Message);
                             }
                         }
                     }
@@ -365,7 +373,7 @@ namespace UppdateraKurserService
             }
             catch (Exception ex)
             {
-                Logger("ERROR", ex.Message);
+                Logger("ERROR6", ex.Message);
             }
         }
 
@@ -374,40 +382,41 @@ namespace UppdateraKurserService
             //Uppdaterar Kurs och SEKKurs 
 
             decimal SEKKurs = Kurs * rate;
-            string mysqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + ", SEKKURS = " + SEKKurs + " WHERE Symbol = " + GlobalVars.quote + symbol + GlobalVars.quote + ";";
+            string sqlcmnd = "UPDATE money." + table + " SET Kurs =  " + Kurs + ", SEKKURS = " + SEKKurs + " WHERE Symbol = '" +  symbol + "';";
+            //Logger("Info7", sqlcmnd);
 
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
-                    MySqlCommand command = new MySqlCommand(mysqlcmnd, connection);
+                    SqlCommand command = new SqlCommand(sqlcmnd, connection);
                     command.ExecuteNonQuery();
                 }
             }
             catch (Exception ex)
             {
-                Logger("ERROR", ex.Message);
+                Logger("ERROR7", ex.Message);
             }
         }
 
         public static void UpdateTotal()
         {
-            string mysqlcmnd = "CALL `money`.`update_total`();";
-            Logger("INFO", "Updating Total ");
+            string sqlcmnd = "EXEC money.update_total;";
+            Logger("INFO8", sqlcmnd);
 
             try
             {
-                using (MySqlConnection connection = new MySqlConnection(GlobalVars.conString))
+                using (SqlConnection connection = new SqlConnection(GlobalVars.SQLconString))
                 {
                     connection.Open();
-                    MySqlCommand command = new MySqlCommand(mysqlcmnd, connection);
+                    SqlCommand command = new SqlCommand(sqlcmnd, connection);
                     command.ExecuteNonQuery();
                 }
             }
             catch (Exception ex)
             {
-                Logger("ERROR", ex.Message);
+                Logger("ERROR8", ex.Message);
             }
 
         }
@@ -431,7 +440,7 @@ namespace UppdateraKurserService
             }
             catch (Exception ex)
             {
-                Logger("ERROR", "Problem med att hämta Exchange rates " + ex.Message);
+                Logger("ERROR9", "Problem med att hämta Exchange rates " + ex.Message);
                 return 0;
             }
 
